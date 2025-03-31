@@ -7,22 +7,25 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 var (
-	errorLogFilePath string
-	infoLogFilePath  string
-	serverPort       string
-	logFilePaths     []string
+	errorLogFilePath         string
+	infoLogFilePath          string
+	serverPort               string
+	authorizationHeaderToken string
+	logFilePaths             []string
 )
 
 func main() {
 	flag.StringVar(&errorLogFilePath, "error-log", "./error.log", "Path to the error log file")
 	flag.StringVar(&infoLogFilePath, "info-log", "./info.log", "Path to the info log file")
 	flag.StringVar(&serverPort, "port", "8080", "The port to run the server on")
+	flag.StringVar(&authorizationHeaderToken, "auth-header-token", "", "Authorization header token for the server")
 	flag.Parse()
 
 	// append to the log file paths
@@ -33,6 +36,8 @@ func main() {
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("pong"))
 	})
+
+	r.Use(authMiddleware)
 	r.Get("/grep", grepLogHandler)
 
 	fmt.Printf("Starting server on port %s...\n", serverPort)
@@ -40,6 +45,30 @@ func main() {
 		fmt.Printf("Failed to start server: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authorizationHeaderToken != "" {
+			tokenHeaderVal := r.Header.Get("Authorization")
+
+			// Extract token from "Bearer <token>"
+			tokenStr := strings.TrimPrefix(tokenHeaderVal, "Bearer ")
+			if tokenStr == "" {
+				http.Error(w, "invalid token format", http.StatusForbidden)
+				return
+			}
+
+			// Check if the token matches the expected token
+			if tokenStr != authorizationHeaderToken {
+				http.Error(w, "invalid token", http.StatusForbidden)
+				return
+			}
+		}
+
+		// Token is valid, proceed with the request
+		next.ServeHTTP(w, r)
+	})
 }
 
 func grepLogHandler(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +115,11 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	for _, match := range matches {
-		fmt.Fprintln(w, match)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Found %d matches:\n", len(matches))
+	if len(matches) > 0 {
+		for _, match := range matches {
+			fmt.Fprintln(w, match)
+		}
 	}
 }
