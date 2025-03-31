@@ -33,12 +33,17 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+	r.Use(middleware.NoCache)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * 1000)) // 1 min timeout
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("pong"))
 	})
 
-	r.Use(authMiddleware)
-	r.Get("/grep", grepLogHandler)
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Get("/grep", grepLogHandler)
+	})
 
 	fmt.Printf("Starting server on port %s...\n", serverPort)
 	if err := http.ListenAndServe(fmt.Sprintf(":%s", serverPort), r); err != nil {
