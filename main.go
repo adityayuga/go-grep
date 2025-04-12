@@ -137,8 +137,11 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Found %d matches:\n", len(matches))
 	if len(matches) > 0 {
-		for _, match := range matches {
-			fmt.Fprintln(w, match)
+		for logType, logMatches := range matches {
+			fmt.Fprintln(w, logType+":")
+			for _, match := range logMatches {
+				fmt.Fprintln(w, match)
+			}
 		}
 	}
 }
