@@ -101,6 +101,7 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// loop through the log file paths
+	totalMatches := 0
 	matches := make(map[string][]string)
 	for logType, logFilePath := range logFilePaths {
 		if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
@@ -122,6 +123,7 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 			line := scanner.Text()
 			if re.MatchString(line) {
 				tempMatcher = append(tempMatcher, line)
+				totalMatches++
 			}
 		}
 
@@ -135,9 +137,12 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Found %d matches:\n", len(matches))
-	if len(matches) > 0 {
+	fmt.Fprintf(w, "Found %d matches:\n", totalMatches)
+	if totalMatches > 0 {
 		for logType, logMatches := range matches {
+			if len(logMatches) == 0 {
+				continue
+			}
 			fmt.Fprintln(w, logType+":")
 			for _, match := range logMatches {
 				fmt.Fprintln(w, match)
