@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -18,7 +19,7 @@ var (
 	infoLogFilePath          string
 	serverPort               string
 	authorizationHeaderToken string
-	logFilePaths             []string
+	logFilePaths             map[string]string
 )
 
 func main() {
@@ -26,16 +27,26 @@ func main() {
 	flag.StringVar(&infoLogFilePath, "info-log", "./info.log", "Path to the info log file")
 	flag.StringVar(&serverPort, "port", "8080", "The port to run the server on")
 	flag.StringVar(&authorizationHeaderToken, "auth-header-token", "", "Authorization header token for the server")
+
+	listCustomLogFiles := make(stringMapFlag)
+	flag.Var(&listCustomLogFiles, "log", "Set key=value (can be used multiple times)")
+
 	flag.Parse()
 
 	// append to the log file paths
-	logFilePaths = []string{errorLogFilePath, infoLogFilePath}
+	logFilePaths = make(map[string]string)
+	logFilePaths["error"] = errorLogFilePath
+	logFilePaths["info"] = infoLogFilePath
+	for logType, logFilePath := range listCustomLogFiles {
+		logFilePaths[strings.ToLower(logType)] = logFilePath
+	}
+	fmt.Println(logFilePaths)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.NoCache)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * 1000)) // 1 min timeout
+	r.Use(middleware.Timeout(time.Minute)) // 1 min timeout
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("pong"))
 	})
@@ -90,8 +101,8 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// loop through the log file paths
-	var matches []string
-	for _, logFilePath := range logFilePaths {
+	matches := make(map[string][]string)
+	for logType, logFilePath := range logFilePaths {
 		if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
 			http.Error(w, fmt.Sprintf("Log file %s does not exist", logFilePath), http.StatusInternalServerError)
 			return
@@ -106,10 +117,11 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 
 		scanner := bufio.NewScanner(file)
 
+		var tempMatcher []string
 		for scanner.Scan() {
 			line := scanner.Text()
 			if re.MatchString(line) {
-				matches = append(matches, line)
+				tempMatcher = append(tempMatcher, line)
 			}
 		}
 
@@ -117,6 +129,8 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error reading log file", http.StatusInternalServerError)
 			return
 		}
+
+		matches[logType] = tempMatcher
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
@@ -127,4 +141,27 @@ func grepLogHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintln(w, match)
 		}
 	}
+}
+
+// Custom map type
+type stringMapFlag map[string]string
+
+// Implement the flag.Value interface
+func (m *stringMapFlag) String() string {
+	var pairs []string
+	for k, v := range *m {
+		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(pairs, ", ")
+}
+
+func (m *stringMapFlag) Set(input string) error {
+	parts := strings.SplitN(input, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid format: expected key=value, got %s", input)
+	}
+	key := parts[0]
+	value := parts[1]
+	(*m)[key] = value
+	return nil
 }
